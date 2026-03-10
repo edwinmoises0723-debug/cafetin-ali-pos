@@ -1,20 +1,16 @@
-
 import { createClient } from '@supabase/supabase-js';
 
-// Intentar leer credenciales guardadas
-const storedUrl = localStorage.getItem('supabase_url');
-const storedKey = localStorage.getItem('supabase_key');
+// 1. Usamos las variables de entorno de Vercel/Vite directamente
+// Estos nombres DEBEN coincidir con los que pusiste en el panel de Vercel
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Crear cliente solo si existen credenciales, sino null
-export const supabase = (storedUrl && storedKey) 
-  ? createClient(storedUrl, storedKey) 
-  : null;
+// 2. Si no existen las variables (por si olvidaste configurarlas), lanzamos un error claro
+if (!supabaseUrl || !supabaseKey) {
+  console.error("Error: Las credenciales de Supabase no están configuradas en Vercel.");
+}
 
-// Función auxiliar para re-inicializar si cambian las credenciales
-export const initSupabase = (url: string, key: string) => {
-  if (!url || !key) return null;
-  localStorage.setItem('supabase_url', url);
-  localStorage.setItem('supabase_key', key);
-  window.location.reload(); // Recargar para aplicar cambios
-  return createClient(url, key);
-};
+// 3. Exportamos el cliente conectado permanentemente a tu base de datos
+export const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Ya no necesitas la función initSupabase porque ahora es automático para todos
