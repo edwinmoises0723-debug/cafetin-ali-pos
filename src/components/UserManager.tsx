@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, Role } from '../types';
-import { X, Plus, Trash2 } from 'lucide-react';
-import { getStoredUsers, saveUsers } from '../data/userData';
+import { X, Plus, Trash2, Loader2 } from 'lucide-react';
+// IMPORTANTE: Importamos la conexión de Supabase
+import { supabase } from '../lib/supabase';
 
 interface UserManagerProps {
   onClose: () => void;
@@ -42,6 +43,7 @@ const roleLabels: Record<Role, { label: string; description: string; color: stri
 
 const UserManager: React.FC<UserManagerProps> = ({ onClose }) => {
   const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   
@@ -51,57 +53,89 @@ const UserManager: React.FC<UserManagerProps> = ({ onClose }) => {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<Role>('mesero');
 
+  // CARGAR USUARIOS DESDE SUPABASE
+  const fetchUsers = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .order('name', { ascending: true });
+
+    if (error) {
+      showNotification('error', 'Error al cargar usuarios de la base de datos');
+    } else {
+      setUsers(data || []);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    setUsers(getStoredUsers());
+    fetchUsers();
   }, []);
 
   const showNotification = (type: 'success' | 'error', message: string) => {
     setNotification({ type, message });
-    setTimeout(() => setNotification(null), 3000);
+    setTimeout(() => setNotification(null), 4000);
   };
 
-  const handleAddUser = (e: React.FormEvent) => {
+  // GUARDAR USUARIO EN SUPABASE
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Verificar duplicados localmente antes de enviar
     if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) {
-      showNotification('error', '⚠️ El nombre de usuario ya existe. Por favor, elige otro.');
+      showNotification('error', '⚠️ El nombre de usuario ya existe.');
       return;
     }
 
-    const newUser: User = {
-      id: Date.now().toString(),
+    const newUser = {
       name,
       username: username.toLowerCase(),
       password,
       role
     };
 
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
-    saveUsers(updatedUsers);
-    setShowAddForm(false);
-    showNotification('success', `✅ Usuario "${name}" creado exitosamente`);
-    
-    // Reset form
-    setName('');
-    setUsername('');
-    setPassword('');
-    setRole('mesero');
+    const { data, error } = await supabase
+      .from('users')
+      .insert([newUser])
+      .select();
+
+    if (error) {
+      showNotification('error', '❌ Error de base de datos: ' + error.message);
+    } else {
+      setUsers([...users, data[0] as User]);
+      setShowAddForm(false);
+      showNotification('success', `✅ Usuario "${name}" guardado en Supabase`);
+      
+      // Reset form
+      setName('');
+      setUsername('');
+      setPassword('');
+      setRole('mesero');
+    }
   };
 
-  const handleDeleteUser = (user: User) => {
+  // ELIMINAR USUARIO DE SUPABASE
+  const handleDeleteUser = async (user: User) => {
     if (user.username === 'admin') {
-      showNotification('error', '⚠️ No se puede eliminar el usuario administrador principal');
+      showNotification('error', '⚠️ No se puede eliminar el administrador principal');
       return;
     }
     
-    const confirmed = window.confirm(`¿Estás seguro de eliminar al usuario "${user.name}"?\n\nEsta acción no se puede deshacer.`);
+    const confirmed = window.confirm(`¿Eliminar a "${user.name}" de la base de datos?\nEsta acción es permanente.`);
     
     if (confirmed) {
-      const updatedUsers = users.filter(u => u.id !== user.id);
-      setUsers(updatedUsers);
-      saveUsers(updatedUsers);
-      showNotification('success', `✅ Usuario "${user.name}" eliminado correctamente`);
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', user.id);
+
+      if (error) {
+        showNotification('error', '❌ No se pudo eliminar: ' + error.message);
+      } else {
+        setUsers(users.filter(u => u.id !== user.id));
+        showNotification('success', `✅ Usuario eliminado correctamente`);
+      }
     }
   };
 
@@ -113,14 +147,11 @@ const UserManager: React.FC<UserManagerProps> = ({ onClose }) => {
           <div className="flex items-center gap-3">
             <span className="text-3xl">👥</span>
             <div>
-              <h2 className="text-xl font-bold text-white">Gestión de Usuarios</h2>
-              <p className="text-purple-100 text-sm">Administra el equipo de trabajo</p>
+              <h2 className="text-xl font-bold text-white">Gestión de Usuarios (Cloud)</h2>
+              <p className="text-purple-100 text-sm">Datos sincronizados con Supabase</p>
             </div>
           </div>
-          <button 
-            onClick={onClose} 
-            className="p-2 hover:bg-white/20 rounded-full transition-colors text-white"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full text-white">
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -128,76 +159,69 @@ const UserManager: React.FC<UserManagerProps> = ({ onClose }) => {
         {/* Notification */}
         {notification && (
           <div className={`mx-6 mt-4 p-4 rounded-lg flex items-center gap-3 ${
-            notification.type === 'success' 
-              ? 'bg-green-50 border border-green-200 text-green-800' 
-              : 'bg-red-50 border border-red-200 text-red-800'
-          }`}>
+            notification.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200'
+          } border`}>
             <span className="font-medium">{notification.message}</span>
           </div>
         )}
 
         <div className="p-6 overflow-y-auto flex-1">
-          {!showAddForm ? (
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+              <Loader2 className="w-10 h-10 animate-spin mb-4 text-purple-600" />
+              <p>Conectando con la base de datos...</p>
+            </div>
+          ) : !showAddForm ? (
             <div>
               <div className="flex justify-between items-center mb-6">
                 <p className="text-gray-600">
-                  {users.length} {users.length === 1 ? 'usuario registrado' : 'usuarios registrados'}
+                  {users.length} usuarios en la nube
                 </p>
                 <button
                   onClick={() => setShowAddForm(true)}
-                  className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-lg hover:shadow-xl"
+                  className="bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
                 >
                   <Plus className="w-5 h-5" />
-                  Agregar Usuario
+                  Nuevo Usuario
                 </button>
               </div>
 
-              <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
+              <div className="overflow-x-auto rounded-xl border border-gray-200">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Usuario</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Acceso</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Rol</th>
-                      <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Acciones</th>
+                      <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Usuario</th>
+                      <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Rol</th>
+                      <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {users.map((user) => (
-                      <tr key={user.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap">
+                      <tr key={user.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-bold">
+                            <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold">
                               {user.name.charAt(0).toUpperCase()}
                             </div>
                             <div>
-                              <div className="font-semibold text-gray-900">{user.name}</div>
+                              <div className="font-bold text-gray-900">{user.name}</div>
                               <div className="text-sm text-gray-500">@{user.username}</div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm text-gray-500">
-                            {roleLabels[user.role].description}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-3 py-1.5 inline-flex items-center gap-1.5 text-xs font-semibold rounded-full ${roleLabels[user.role].color}`}>
-                            <span>{roleLabels[user.role].icon}</span>
+                        <td className="px-6 py-4">
+                          <span className={`px-3 py-1 inline-flex items-center gap-1 text-xs font-bold rounded-full ${roleLabels[user.role].color}`}>
                             {roleLabels[user.role].label}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                          {user.username !== 'admin' ? (
+                        <td className="px-6 py-4 text-right">
+                          {user.username !== 'admin' && (
                             <button
                               onClick={() => handleDeleteUser(user)}
-                              className="text-red-600 hover:text-red-900 bg-red-50 p-2.5 rounded-lg hover:bg-red-100 transition-colors"
-                              title="Eliminar usuario"
+                              className="text-red-600 hover:bg-red-50 p-2 rounded-lg transition-colors"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-5 h-5" />
                             </button>
-                          ) : (
-                            <span className="text-xs text-gray-400 italic">Usuario protegido</span>
                           )}
                         </td>
                       </tr>
@@ -205,120 +229,73 @@ const UserManager: React.FC<UserManagerProps> = ({ onClose }) => {
                   </tbody>
                 </table>
               </div>
-
-              {/* Leyenda de roles */}
-              <div className="mt-6 p-4 bg-gray-50 rounded-xl">
-                <h4 className="text-sm font-semibold text-gray-700 mb-3">📋 Permisos por Rol:</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {Object.entries(roleLabels).map(([key, value]) => (
-                    <div key={key} className="flex items-center gap-2 text-sm">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${value.color}`}>
-                        {value.icon} {value.label}
-                      </span>
-                      <span className="text-gray-500">{value.description}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
           ) : (
-            <div className="max-w-lg mx-auto">
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Plus className="w-8 h-8 text-green-600" />
-                </div>
-                <h3 className="text-xl font-bold text-gray-900">Crear Nuevo Usuario</h3>
-                <p className="text-gray-500 text-sm">Completa la información del nuevo miembro del equipo</p>
-              </div>
-              
-              <form onSubmit={handleAddUser} className="space-y-5">
+            /* Formulario para agregar usuario */
+            <form onSubmit={handleAddUser} className="space-y-6 max-w-2xl mx-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    👤 Nombre Completo
-                  </label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Nombre Completo</label>
                   <input
                     type="text"
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Ej: Juan Pérez"
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 transition-colors"
+                    className="w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-purple-500 outline-none"
+                    placeholder="Ej: Heydi Garcia"
                   />
                 </div>
-                
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    🔑 Usuario de Acceso
-                  </label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Nombre de Usuario</label>
                   <input
                     type="text"
                     required
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Ej: jperez"
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 transition-colors"
+                    className="w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-purple-500 outline-none"
+                    placeholder="heydi.g"
                   />
-                  <p className="text-xs text-gray-400 mt-1">Sin espacios ni caracteres especiales</p>
                 </div>
-                
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    🔒 Contraseña
-                  </label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Contraseña</label>
                   <input
                     type="password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Mínimo 6 caracteres"
-                    minLength={6}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 transition-colors"
+                    className="w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-purple-500 outline-none"
                   />
                 </div>
-                
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    🎭 Rol / Cargo
-                  </label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Rol del Usuario</label>
                   <select
                     value={role}
                     onChange={(e) => setRole(e.target.value as Role)}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 transition-colors bg-white"
+                    className="w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-purple-500 outline-none"
                   >
-                    <option value="admin">👑 Administrador - Acceso total</option>
-                    <option value="supervisor">📊 Supervisor - Ventas, reportes e inventario</option>
-                    <option value="cajero">💵 Cajero - Ventas y cobros</option>
-                    <option value="mesero">🍽️ Mesero - Órdenes y cocina</option>
-                    <option value="cocina">👨‍🍳 Cocina - Ver comandas</option>
+                    {Object.entries(roleLabels).map(([key, { label }]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
                   </select>
                 </div>
+              </div>
 
-                {/* Info del rol seleccionado */}
-                <div className={`p-4 rounded-xl ${roleLabels[role].color} border`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-lg">{roleLabels[role].icon}</span>
-                    <span className="font-semibold">{roleLabels[role].label}</span>
-                  </div>
-                  <p className="text-sm opacity-80">{roleLabels[role].description}</p>
-                </div>
-                
-                <div className="flex justify-end gap-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddForm(false)}
-                    className="px-6 py-3 border-2 border-gray-200 rounded-xl text-gray-700 bg-white hover:bg-gray-50 transition-colors font-medium"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-6 py-3 rounded-xl text-white bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 transition-all font-medium shadow-lg"
-                  >
-                    ✓ Crear Usuario
-                  </button>
-                </div>
-              </form>
-            </div>
+              <div className="flex justify-end gap-3 pt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(false)}
+                  className="px-6 py-3 rounded-xl border font-bold text-gray-600 hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-3 rounded-xl bg-purple-600 text-white font-bold hover:bg-purple-700 shadow-lg"
+                >
+                  Guardar en Base de Datos
+                </button>
+              </div>
+            </form>
           )}
         </div>
       </div>
