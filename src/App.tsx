@@ -14,7 +14,6 @@ import { InventoryModal } from './components/InventoryModal';
 import Login from './components/Login';
 import UserManager from './components/UserManager';
 import HelpModal from './components/HelpModal';
-import { SupabaseConfigModal } from './components/SupabaseConfigModal';
 import { supabase } from './lib/supabase';
 import Footer from './components/Footer';
 
