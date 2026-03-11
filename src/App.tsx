@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { MenuItem, Order, OrderItem, Table, PausedOrder, KitchenOrder, User } from './types';
-import { categories } from './data/menuData'; // Solo las categorías quedan locales
+import { MenuItem, Order, OrderItem, Table, User } from './types';
+import { categories } from './data/menuData'; // Solo las categorías se mantienen locales
 import { Header } from './components/Header';
 import { CategoryBar } from './components/CategoryBar';
 import { MenuGrid } from './components/MenuGrid';
@@ -19,119 +19,128 @@ import Footer from './components/Footer';
 import { Loader2 } from 'lucide-react';
 
 function App() {
-  // --- ESTADOS DE CONTROL ---
+  // --- ESTADOS DE CONTROL Y SEGURIDAD ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isHydrated, setIsHydrated] = useState(false); // Para evitar error #418
-  const [loading, setLoading] = useState(true); // Para esperar a Supabase
+  const [isHydrated, setIsHydrated] = useState(false); // Evita error de hidratación en Vercel
+  const [loading, setLoading] = useState(true); // Espera a que Supabase responda
 
-  // --- ESTADOS DE DATOS (Inician vacíos) ---
+  // --- ESTADOS DE DATOS (Vacíos al iniciar) ---
   const [products, setProducts] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
+  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  
+  // Estados de UI
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
-  const [tipPercentage, setTipPercentage] = useState<number>(10);
-  
-  // Modals Visibility
-  const [showTableSelector, setShowTableSelector] = useState<boolean>(false);
-  const [showCheckout, setShowCheckout] = useState<boolean>(false);
-  const [showReports, setShowReports] = useState<boolean>(false);
-  const [showKitchen, setShowKitchen] = useState<boolean>(false);
-  const [showInventory, setShowInventory] = useState<boolean>(false);
-  const [showProductManager, setShowProductManager] = useState<boolean>(false);
-  const [showHelp, setShowHelp] = useState<boolean>(false);
-  
-  const [isOrderPanelMinimized, setIsOrderPanelMinimized] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [tipPercentage, setTipPercentage] = useState<number>(10);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
-  // 1. EFECTO DE HIDRATACIÓN Y AUTH
+  // Visibilidad de Modales
+  const [showTableSelector, setShowTableSelector] = useState(false);
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [showReports, setShowReports] = useState(false);
+  const [showKitchen, setShowKitchen] = useState(false);
+  const [showInventory, setShowInventory] = useState(false);
+  const [showProductManager, setShowProductManager] = useState(false);
+  const [showUserManager, setShowUserManager] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+
+  // 1. EFECTO INICIAL: Hidratación y Sesión
   useEffect(() => {
     const storedUser = localStorage.getItem('pos_current_user');
     if (storedUser) {
-      setCurrentUser(JSON.parse(storedUser));
+      try {
+        setCurrentUser(JSON.parse(storedUser));
+      } catch (e) {
+        localStorage.removeItem('pos_current_user');
+      }
     }
     setIsHydrated(true);
   }, []);
 
-  // 2. CARGA DE DATOS DESDE SUPABASE
+  // 2. EFECTO: Cargar Productos y Mesas de Supabase
   useEffect(() => {
     if (isHydrated && currentUser) {
-      const loadAppData = async () => {
+      const loadData = async () => {
         setLoading(true);
         try {
-          // Traer Productos
-          const { data: prodData } = await supabase.from('products').select('*').order('name');
-          // Traer Mesas
-          const { data: tableData } = await supabase.from('tables').select('*').order('id');
-          
-          if (prodData) setProducts(prodData);
-          if (tableData) setTables(tableData);
+          const [resProducts, resTables] = await Promise.all([
+            supabase.from('products').select('*').order('name'),
+            supabase.from('tables').select('*').order('id')
+          ]);
+
+          if (resProducts.data) setProducts(resProducts.data);
+          if (resTables.data) setTables(resTables.data);
         } catch (err) {
-          console.error("Error cargando datos:", err);
+          console.error("Error sincronizando con la nube:", err);
         } finally {
           setLoading(false);
         }
       };
-      loadAppData();
+      loadData();
     } else {
       setLoading(false);
     }
   }, [isHydrated, currentUser]);
 
-  // --- HANDLERS ---
+  // --- MANEJADORES DE EVENTOS ---
   const handleLogin = (user: User) => {
     setCurrentUser(user);
     localStorage.setItem('pos_current_user', JSON.stringify(user));
+    // Al loguear, el useEffect de carga se disparará automáticamente
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('pos_current_user');
-    setShowReports(false);
-    setShowInventory(false);
-    setShowProductManager(false);
+    setOrderItems([]);
   };
 
   const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ type, message });
-    setTimeout(() => setNotification(null), 4000);
+    setTimeout(() => setNotification(null), 3000);
   };
 
-  // Lógica de filtrado
+  // --- LÓGICA DE FILTRADO Y CÁLCULOS ---
   const filteredItems = useMemo(() => {
     let items = products;
     if (selectedCategory !== 'all') items = items.filter(i => i.category === selectedCategory);
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      items = items.filter(i => i.name.toLowerCase().includes(q) || i.description?.toLowerCase().includes(q));
+      items = items.filter(i => i.name.toLowerCase().includes(q));
     }
     return items;
   }, [products, selectedCategory, searchQuery]);
 
-  // Cálculos de totales
   const subtotal = orderItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
   const taxableSubtotal = orderItems.reduce((sum, item) => (item.menuItem.hasTax ? sum + item.menuItem.price * item.quantity : sum), 0);
   const tax = taxableSubtotal * 0.15;
   const tip = subtotal * (tipPercentage / 100);
   const total = subtotal + tax + tip;
 
-  // Renderizado condicional para evitar errores de Hydration
+  // --- RENDERIZADO ---
+
+  // A. Evitar choque de versiones (Hydration)
   if (!isHydrated) return null;
 
+  // B. Si no hay sesión, mostrar el Login corregido
   if (!currentUser) {
     return <Login onLoginSuccess={handleLogin} />;
   }
 
+  // C. Si está cargando datos de Supabase
   if (loading) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-gray-50">
-        <Loader2 className="w-12 h-12 animate-spin text-orange-500" />
-        <p className="mt-4 text-gray-600 font-bold animate-pulse">Sincronizando Cafetín Alí...</p>
+        <Loader2 className="w-12 h-12 animate-spin text-orange-600 mb-4" />
+        <h2 className="text-xl font-bold text-gray-700">Sincronizando Cafetín Alí...</h2>
+        <p className="text-gray-500">Esto solo tomará un momento</p>
       </div>
     );
   }
 
+  // D. Interfaz Principal
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       <Header 
@@ -146,7 +155,8 @@ function App() {
       />
 
       <main className="flex-1 flex overflow-hidden">
-        <div className={`flex-1 flex flex-col transition-all duration-300 ${isOrderPanelMinimized ? 'w-full' : 'lg:mr-96'}`}>
+        {/* Lado Izquierdo: Menú */}
+        <div className="flex-1 flex flex-col overflow-hidden">
           <CategoryBar 
             categories={categories}
             selectedCategory={selectedCategory}
@@ -157,18 +167,19 @@ function App() {
             <div className="mb-4">
               <input
                 type="text"
-                placeholder="Buscar producto..."
-                className="w-full p-3 rounded-xl border shadow-sm"
+                placeholder="Buscar por nombre..."
+                className="w-full p-4 rounded-2xl border-none shadow-sm focus:ring-2 focus:ring-orange-500"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
+            
             <MenuGrid 
               items={filteredItems}
               onAddItem={(item) => {
                 const inCart = orderItems.find(i => i.menuItem.id === item.id)?.quantity || 0;
                 if ((item.stock || 0) - inCart <= 0) {
-                  showNotification('error', '⚠️ Sin stock suficiente');
+                  showNotification('error', '❌ ¡Sin stock!');
                   return;
                 }
                 setOrderItems(prev => {
@@ -181,6 +192,7 @@ function App() {
           </div>
         </div>
 
+        {/* Lado Derecho: Panel de Orden */}
         <OrderPanel 
           orderItems={orderItems}
           subtotal={subtotal}
@@ -195,7 +207,7 @@ function App() {
         />
       </main>
 
-      {/* MODALES */}
+      {/* MODALES CLAVE */}
       {showCheckout && (
         <CheckoutModal 
           table={selectedTable}
@@ -206,7 +218,7 @@ function App() {
           total={total}
           onClose={() => setShowCheckout(false)}
           onConfirm={() => {
-            showNotification('success', '✅ Venta realizada con éxito');
+            showNotification('success', '✅ Venta guardada exitosamente');
             setOrderItems([]);
             setSelectedTable(null);
             setShowCheckout(false);
@@ -214,10 +226,12 @@ function App() {
         />
       )}
 
-      {/* Resto de modales (UserManager, ProductManager, etc.) se activan aquí de forma similar */}
+      {showUserManager && <UserManager onClose={() => setShowUserManager(false)} />}
+      {showProductManager && <ProductManager onClose={() => setShowProductManager(false)} />}
       
+      {/* Notificaciones flotantes */}
       {notification && (
-        <div className={`fixed bottom-20 right-4 p-4 rounded-xl shadow-2xl z-50 animate-bounce ${
+        <div className={`fixed bottom-24 right-4 p-4 rounded-2xl shadow-2xl z-50 animate-bounce ${
           notification.type === 'success' ? 'bg-green-600' : 'bg-red-600'
         } text-white font-bold`}>
           {notification.message}
