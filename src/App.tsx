@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { MenuItem, OrderItem, Table, User, Category } from './types';
 import { supabase } from './lib/supabase';
 
-// IMPORTACIONES (Asegúrate que los nombres coincidan con tus archivos)
+// IMPORTACIONES (Asegúrate de que estas rutas sean correctas en tu proyecto)
 import Login from './components/Login';
 import { Header } from './components/Header';
 import { CategoryBar } from './components/CategoryBar';
@@ -19,7 +19,7 @@ function App() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // ESCUDO 1: Inicializamos siempre como arreglos vacíos []
+  // --- ESCUDO 1: Inicializamos siempre como arreglos vacíos para evitar el error 'filter' ---
   const [products, setProducts] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -52,7 +52,7 @@ function App() {
             supabase.from('tables').select('*').order('id'),
             supabase.from('categories').select('*').order('name')
           ]);
-          // ESCUDO 2: Si la respuesta es nula, usamos [] para que no explote el .filter
+          // ESCUDO 2: Si la respuesta de la nube es nula o falla, usamos [] por defecto
           setProducts(resProd.data || []);
           setTables(resTable.data || []);
           setCategories(resCats.data || []);
@@ -73,11 +73,12 @@ function App() {
     localStorage.setItem('pos_current_user', JSON.stringify(user));
   };
 
-  // ESCUDO 3: LÓGICA DE FILTRADO ANTI-ERRORES (ARREGLA EL ERROR DE LA FOTO)
+  // --- ESCUDO 3: LÓGICA DE FILTRADO (ESTO ELIMINA EL ERROR DE TU FOTO) ---
   const filteredItems = useMemo(() => {
+    // Si products por alguna razón no es un array, usamos []
     const items = Array.isArray(products) ? products : [];
-    let result = [...items];
     
+    let result = [...items];
     if (selectedCategory && selectedCategory !== 'all') {
       result = result.filter(i => i && i.category === selectedCategory);
     }
@@ -97,7 +98,7 @@ function App() {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-gray-50 text-orange-600">
         <Loader2 className="w-12 h-12 animate-spin mb-4" />
-        <h2 className="text-xl font-bold">Sincronizando Cafetín Alí...</h2>
+        <h2 className="text-xl font-bold">Cargando Cafetín Alí...</h2>
       </div>
     );
   }
