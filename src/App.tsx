@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { MenuItem, OrderItem, Table, User, Category } from './types';
 import { supabase } from './lib/supabase';
 
-// IMPORTACIONES
+// IMPORTACIONES (Asegúrate que los nombres coincidan con tus archivos)
 import Login from './components/Login';
 import { Header } from './components/Header';
 import { CategoryBar } from './components/CategoryBar';
@@ -19,7 +19,7 @@ function App() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // ESTADOS INICIALIZADOS SIEMPRE COMO ARRAYS VACÍOS []
+  // ESCUDO 1: Inicializamos siempre como arreglos vacíos []
   const [products, setProducts] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -52,6 +52,7 @@ function App() {
             supabase.from('tables').select('*').order('id'),
             supabase.from('categories').select('*').order('name')
           ]);
+          // ESCUDO 2: Si la respuesta es nula, usamos [] para que no explote el .filter
           setProducts(resProd.data || []);
           setTables(resTable.data || []);
           setCategories(resCats.data || []);
@@ -72,12 +73,11 @@ function App() {
     localStorage.setItem('pos_current_user', JSON.stringify(user));
   };
 
-  // --- LÓGICA DE FILTRADO BLINDADA (ESTO ARREGLA EL ERROR DE LA FOTO) ---
+  // ESCUDO 3: LÓGICA DE FILTRADO ANTI-ERRORES (ARREGLA EL ERROR DE LA FOTO)
   const filteredItems = useMemo(() => {
-    // Si products no es un array, forzamos un array vacío. Esto mata el error 'filter'
     const items = Array.isArray(products) ? products : [];
-    
     let result = [...items];
+    
     if (selectedCategory && selectedCategory !== 'all') {
       result = result.filter(i => i && i.category === selectedCategory);
     }
@@ -140,7 +140,7 @@ function App() {
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                <p className="text-lg">No hay productos disponibles.</p>
+                <p className="text-lg">No hay productos disponibles actualmente.</p>
               </div>
             )}
           </div>
