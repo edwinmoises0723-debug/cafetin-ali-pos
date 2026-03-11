@@ -1,24 +1,26 @@
 import { useState, useMemo, useEffect } from 'react';
 import { MenuItem, OrderItem, Table, User, Category } from './types';
+import { supabase } from './lib/supabase';
+
+// IMPORTACIONES CORREGIDAS (Asegúrate que los archivos existan en estas rutas)
+import Login from './components/Login';
 import { Header } from './components/Header';
 import { CategoryBar } from './components/CategoryBar';
 import { MenuGrid } from './components/MenuGrid';
 import { OrderPanel } from './components/OrderPanel';
 import { CheckoutModal } from './components/CheckoutModal';
-import Login from './components/Login';
 import UserManager from './components/UserManager';
-import ProductManager from './components/ProductManager';
-import { supabase } from './lib/supabase';
+import ProductManager from './components/ProductManager'; // Cambiado a importación simple
 import Footer from './components/Footer';
 import { Loader2 } from 'lucide-react';
 
 function App() {
-  // --- 1. ESTADOS DE CONTROL Y SESIÓN ---
+  // --- ESTADOS DE CONTROL ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // --- 2. ESTADOS DE DATOS (Protegidos con listas vacías iniciales) ---
+  // --- ESTADOS DE DATOS (Inicializados como arrays vacíos para evitar errores de .filter) ---
   const [products, setProducts] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -34,7 +36,7 @@ function App() {
   const [showUserManager, setShowUserManager] = useState(false);
   const [showProductManager, setShowProductManager] = useState(false);
 
-  // --- 3. EFECTO: HIDRATACIÓN ---
+  // 1. Recuperar sesión al cargar
   useEffect(() => {
     const storedUser = localStorage.getItem('pos_current_user');
     if (storedUser) {
@@ -47,7 +49,7 @@ function App() {
     setIsHydrated(true);
   }, []);
 
-  // --- 4. EFECTO: CARGA DE DATOS (Desde Supabase) ---
+  // 2. Cargar datos de Supabase
   useEffect(() => {
     if (isHydrated && currentUser) {
       const loadAppData = async () => {
@@ -59,12 +61,11 @@ function App() {
             supabase.from('categories').select('*').order('name')
           ]);
 
-          // ESCUDO: Si la respuesta es nula, asignamos lista vacía para evitar el error de .filter()
           setProducts(resProd.data || []);
           setTables(resTable.data || []);
           setCategories(resCats.data || []);
         } catch (err) {
-          console.error("Error sincronizando datos:", err);
+          console.error("Error en sincronización:", err);
           setProducts([]);
         } finally {
           setLoading(false);
@@ -76,7 +77,7 @@ function App() {
     }
   }, [isHydrated, currentUser]);
 
-  // --- 5. MANEJADORES ---
+  // --- MANEJADORES ---
   const handleLogin = (user: User) => {
     setCurrentUser(user);
     localStorage.setItem('pos_current_user', JSON.stringify(user));
@@ -88,11 +89,9 @@ function App() {
     setOrderItems([]);
   };
 
-  // --- 6. LÓGICA DE FILTRADO (BLINDADA CONTRA EL ERROR DE LA FOTO) ---
+  // --- LÓGICA DE FILTRADO (BLINDADA) ---
   const filteredItems = useMemo(() => {
-    // Escudo: Si products no es un arreglo válido, usamos una lista vacía.
     const items = Array.isArray(products) ? products : [];
-    
     let result = [...items];
     
     if (selectedCategory && selectedCategory !== 'all') {
@@ -103,11 +102,13 @@ function App() {
       const q = searchQuery.toLowerCase();
       result = result.filter(i => i && i.name && i.name.toLowerCase().includes(q));
     }
-    
     return result;
   }, [products, selectedCategory, searchQuery]);
 
-  // --- 7. RENDERIZADO ---
+  // --- CÁLCULOS ---
+  const total = orderItems.reduce((sum, item) => sum + (item.menuItem?.price || 0) * item.quantity, 0);
+
+  // --- RENDERIZADO ---
   if (!isHydrated) return null;
 
   if (!currentUser) {
@@ -117,7 +118,7 @@ function App() {
   if (loading) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-gray-50">
-        <Loader2 className="w-12 h-12 animate-spin text-orange-500 mb-4" />
+        <Loader2 className="w-12 h-12 animate-spin text-orange-600 mb-4" />
         <h2 className="text-xl font-bold text-gray-700">Sincronizando Cafetín Alí...</h2>
       </div>
     );
@@ -151,16 +152,19 @@ function App() {
               />
             </div>
             
-            {/* Si no hay productos, mostramos un mensaje en lugar de romper la pantalla */}
             {filteredItems.length > 0 ? (
               <MenuGrid 
                 items={filteredItems}
-                onAddItem={(item) => setOrderItems(prev => [...prev, { menuItem: item, quantity: 1, status: 'pending' }])}
+                onAddItem={(item) => setOrderItems(prev => {
+                  const exist = prev.find(i => i.menuItem.id === item.id);
+                  if (exist) return prev.map(i => i.menuItem.id === item.id ? {...i, quantity: i.quantity + 1} : i);
+                  return [...prev, { menuItem: item, quantity: 1, status: 'pending' }];
+                })}
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                 <span className="text-5xl mb-4">🍽️</span>
-                <p className="text-lg font-medium">No hay productos en esta categoría.</p>
+                <p className="text-lg font-medium">No hay productos disponibles.</p>
               </div>
             )}
           </div>
@@ -168,7 +172,7 @@ function App() {
 
         <OrderPanel 
           orderItems={orderItems}
-          total={orderItems.reduce((s, i) => s + i.menuItem.price * i.quantity, 0)}
+          total={total}
           selectedTable={selectedTable}
           onUpdateQuantity={(id, q) => setOrderItems(prev => q <= 0 ? prev.filter(i => i.menuItem.id !== id) : prev.map(i => i.menuItem.id === id ? {...i, quantity: q} : i))}
           onRemoveItem={(id) => setOrderItems(prev => prev.filter(i => i.menuItem.id !== id))}
@@ -176,6 +180,23 @@ function App() {
           onClear={() => { setOrderItems([]); setSelectedTable(null); }}
         />
       </main>
+
+      {showCheckout && (
+        <CheckoutModal 
+          table={selectedTable}
+          orderItems={orderItems}
+          total={total}
+          subtotal={total}
+          tax={0}
+          tip={0}
+          onClose={() => setShowCheckout(false)}
+          onConfirm={() => {
+            setOrderItems([]);
+            setSelectedTable(null);
+            setShowCheckout(false);
+          }}
+        />
+      )}
 
       {showUserManager && <UserManager onClose={() => setShowUserManager(false)} />}
       {showProductManager && <ProductManager onClose={() => setShowProductManager(false)} />}
