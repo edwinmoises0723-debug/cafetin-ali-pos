@@ -59,7 +59,7 @@ function App() {
             supabase.from('categories').select('*').order('name')
           ]);
 
-          // Si la respuesta es nula, asignamos lista vacía para evitar el error de .filter()
+          // ESCUDO: Si la respuesta es nula, asignamos lista vacía para evitar el error de .filter()
           setProducts(resProd.data || []);
           setTables(resTable.data || []);
           setCategories(resCats.data || []);
@@ -88,9 +88,9 @@ function App() {
     setOrderItems([]);
   };
 
-  // --- 6. LÓGICA DE FILTRADO (BLINDADA CONTRA ERRORES) ---
+  // --- 6. LÓGICA DE FILTRADO (BLINDADA CONTRA EL ERROR DE LA FOTO) ---
   const filteredItems = useMemo(() => {
-    // Escudo: Si products no es un arreglo, usamos una lista vacía.
+    // Escudo: Si products no es un arreglo válido, usamos una lista vacía.
     const items = Array.isArray(products) ? products : [];
     
     let result = [...items];
