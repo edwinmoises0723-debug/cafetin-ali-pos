@@ -1,158 +1,65 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { MenuItem, OrderItem, Table, User, Category } from './types';
+import { useState, useMemo, useEffect } from 'react';
 import { supabase } from './lib/supabase';
-
-// IMPORTACIONES
 import Login from './components/Login';
-import { Header } from './components/Header';
-import { CategoryBar } from './components/CategoryBar';
-import { MenuGrid } from './components/MenuGrid';
-import { OrderPanel } from './components/OrderPanel';
-import { CheckoutModal } from './components/CheckoutModal';
-import UserManager from './components/UserManager';
-import ProductManager from './components/ProductManager';
-import Footer from './components/Footer';
 import { Loader2 } from 'lucide-react';
 
 function App() {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ESCUDO: Siempre inicializar como arreglos vacíos []
-  const [products, setProducts] = useState<MenuItem[]>([]);
-  const [tables, setTables] = useState<Table[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
-  
-  const [selectedTable, setSelectedTable] = useState<Table | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  
-  const [showCheckout, setShowCheckout] = useState(false);
-  const [showUserManager, setShowUserManager] = useState(false);
-  const [showProductManager, setShowProductManager] = useState(false);
-
   useEffect(() => {
-    const storedUser = localStorage.getItem('pos_current_user');
-    if (storedUser) {
-      try { setCurrentUser(JSON.parse(storedUser)); } 
-      catch (e) { localStorage.removeItem('pos_current_user'); }
-    }
+    const stored = localStorage.getItem('pos_current_user');
+    if (stored) setCurrentUser(JSON.parse(stored));
     setIsHydrated(true);
   }, []);
 
   useEffect(() => {
     if (isHydrated && currentUser) {
-      const loadData = async () => {
+      const load = async () => {
         setLoading(true);
-        try {
-          const [resProd, resTable, resCats] = await Promise.all([
-            supabase.from('products').select('*').order('name'),
-            supabase.from('tables').select('*').order('id'),
-            supabase.from('categories').select('*').order('name')
-          ]);
-          setProducts(resProd.data || []);
-          setTables(resTable.data || []);
-          setCategories(resCats.data || []);
-        } catch (err) {
-          console.error("Error sincronizando:", err);
-        } finally {
-          setLoading(false);
-        }
+        const { data } = await supabase.from('products').select('*');
+        setProducts(data || []);
+        setLoading(false);
       };
-      loadData();
+      load();
     } else {
       setLoading(false);
     }
   }, [isHydrated, currentUser]);
 
-  const handleLogin = (user: User) => {
-    setCurrentUser(user);
-    localStorage.setItem('pos_current_user', JSON.stringify(user));
-  };
-
-  // --- LÓGICA DE FILTRADO BLINDADA (ARREGLA EL ERROR 'FILTER') ---
-  const filteredItems = useMemo(() => {
-    const items = Array.isArray(products) ? products : [];
-    if (items.length === 0) return [];
-    
-    let result = [...items];
-    if (selectedCategory && selectedCategory !== 'all') {
-      result = result.filter(i => i && i.category === selectedCategory);
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(i => i && i.name && i.name.toLowerCase().includes(q));
-    }
-    return result;
-  }, [products, selectedCategory, searchQuery]);
-
-  const total = orderItems.reduce((sum, item) => sum + (item.menuItem?.price || 0) * item.quantity, 0);
-
   if (!isHydrated) return null;
-  if (!currentUser) return <Login onLoginSuccess={handleLogin} />;
-
-  if (loading) {
-    return (
-      <div className="h-screen flex flex-col items-center justify-center bg-gray-50 text-orange-600">
-        <Loader2 className="w-12 h-12 animate-spin mb-4" />
-        <h2 className="text-xl font-bold">Conectando con Cafetín Alí...</h2>
-      </div>
-    );
-  }
+  if (!currentUser) return <Login onLoginSuccess={(u) => { 
+    setCurrentUser(u); 
+    localStorage.setItem('pos_current_user', JSON.stringify(u)); 
+  }} />;
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
-      <Header 
-        currentUser={currentUser} 
-        onLogout={() => { setCurrentUser(null); localStorage.removeItem('pos_current_user'); }}
-        onShowUserManager={() => setShowUserManager(true)}
-        onShowProductManager={() => setShowProductManager(true)}
-      />
-      <main className="flex-1 flex overflow-hidden">
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <CategoryBar 
-            categories={categories || []}
-            selectedCategory={selectedCategory}
-            onSelectCategory={setSelectedCategory}
-          />
-          <div className="p-4 flex-1 overflow-y-auto">
-            <div className="mb-4">
-              <input
-                type="text"
-                placeholder="Buscar producto..."
-                className="w-full p-4 rounded-2xl border shadow-sm outline-none focus:ring-2 focus:ring-orange-500"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+    <div className="min-h-screen bg-orange-500 p-10 text-white font-bold text-center">
+      <h1 className="text-4xl mb-10">☕ CAFETÍN ALÍ - PANEL DE VENTAS</h1>
+      
+      {loading ? (
+        <Loader2 className="animate-spin mx-auto w-12 h-12" />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {(products || []).map((p: any) => (
+            <div key={p.id} className="bg-white text-black p-6 rounded-2xl shadow-xl">
+              <span className="text-4xl">{p.image || '🍴'}</span>
+              <h2 className="text-xl mt-2">{p.name}</h2>
+              <p className="text-orange-600">C$ {p.price}</p>
             </div>
-            {filteredItems.length > 0 ? (
-              <MenuGrid 
-                items={filteredItems}
-                onAddItem={(item) => setOrderItems(prev => [...prev, { menuItem: item, quantity: 1, status: 'pending' }])}
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                <p className="text-lg font-bold">No hay productos disponibles actualmente.</p>
-              </div>
-            )}
-          </div>
+          ))}
+          {products.length === 0 && <p>No hay productos en la base de datos.</p>}
         </div>
-        <OrderPanel 
-          orderItems={orderItems}
-          total={total}
-          selectedTable={selectedTable}
-          onUpdateQuantity={(id, q) => setOrderItems(prev => q <= 0 ? prev.filter(i => i.menuItem?.id !== id) : prev.map(i => i.menuItem?.id === id ? {...i, quantity: q} : i))}
-          onRemoveItem={(id) => setOrderItems(prev => prev.filter(i => i.menuItem?.id !== id))}
-          onCheckout={() => setShowCheckout(true)}
-          onClear={() => { setOrderItems([]); setSelectedTable(null); }}
-        />
-      </main>
-      {showCheckout && <CheckoutModal table={selectedTable} orderItems={orderItems} total={total} subtotal={total} tax={0} tip={0} onClose={() => setShowCheckout(false)} onConfirm={() => { setOrderItems([]); setSelectedTable(null); setShowCheckout(false); }} />}
-      {showUserManager && <UserManager onClose={() => setShowUserManager(false)} />}
-      {showProductManager && <ProductManager products={products} categories={categories} onAddProduct={(p) => setProducts([...products, p])} onUpdateProduct={(p) => setProducts(products.map(i => i.id === p.id ? p : i))} onDeleteProduct={(id) => setProducts(products.filter(i => i.id !== id))} onClose={() => setShowProductManager(false)} />}
-      <Footer />
+      )}
+      
+      <button 
+        onClick={() => { localStorage.removeItem('pos_current_user'); window.location.reload(); }}
+        className="mt-10 bg-black text-white px-6 py-2 rounded-full"
+      >
+        Cerrar Sesión
+      </button>
     </div>
   );
 }
