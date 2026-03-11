@@ -4,7 +4,6 @@ import { Header } from './components/Header';
 import { CategoryBar } from './components/CategoryBar';
 import { MenuGrid } from './components/MenuGrid';
 import { OrderPanel } from './components/OrderPanel';
-import { TableSelector } from './components/TableSelector';
 import { CheckoutModal } from './components/CheckoutModal';
 import Login from './components/Login';
 import UserManager from './components/UserManager';
@@ -14,12 +13,12 @@ import Footer from './components/Footer';
 import { Loader2 } from 'lucide-react';
 
 function App() {
-  // --- ESTADOS DE CONTROL ---
+  // --- 1. ESTADOS DE CONTROL Y SESIÓN ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // --- ESTADOS DE DATOS (Sincronizados con Supabase) ---
+  // --- 2. ESTADOS DE DATOS (Protegidos con listas vacías) ---
   const [products, setProducts] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -35,7 +34,7 @@ function App() {
   const [showUserManager, setShowUserManager] = useState(false);
   const [showProductManager, setShowProductManager] = useState(false);
 
-  // 1. HIDRATACIÓN: Cargar sesión guardada al abrir la página
+  // --- 3. EFECTO: HIDRATACIÓN ---
   useEffect(() => {
     const storedUser = localStorage.getItem('pos_current_user');
     if (storedUser) {
@@ -48,7 +47,7 @@ function App() {
     setIsHydrated(true);
   }, []);
 
-  // 2. CARGA DE DATOS: Traer todo de Supabase una vez logueado
+  // --- 4. EFECTO: CARGA DE DATOS (Desde Supabase) ---
   useEffect(() => {
     if (isHydrated && currentUser) {
       const loadAppData = async () => {
@@ -60,11 +59,14 @@ function App() {
             supabase.from('categories').select('*').order('name')
           ]);
 
+          // Si falla la red, asignamos lista vacía para que no explote el .filter()
           setProducts(resProd.data || []);
           setTables(resTable.data || []);
           setCategories(resCats.data || []);
         } catch (err) {
           console.error("Error sincronizando datos:", err);
+          setProducts([]);
+          setCategories([]);
         } finally {
           setLoading(false);
         }
@@ -75,7 +77,7 @@ function App() {
     }
   }, [isHydrated, currentUser]);
 
-  // --- MANEJADORES ---
+  // --- 5. MANEJADORES ---
   const handleLogin = (user: User) => {
     setCurrentUser(user);
     localStorage.setItem('pos_current_user', JSON.stringify(user));
@@ -87,26 +89,29 @@ function App() {
     setOrderItems([]);
   };
 
-  // --- LÓGICA DE FILTRADO (PROTEGIDA CONTRA ERRORES) ---
+  // --- 6. LÓGICA DE FILTRADO (BLINDADA CONTRA ERRORES) ---
   const filteredItems = useMemo(() => {
-    // Si products es null o undefined, usamos una lista vacía [] para evitar error de .filter()
-    const items = products || [];
+    // Escudo: Si products no existe, usamos lista vacía. Así nunca da error de 'undefined'
+    const items = Array.isArray(products) ? products : [];
     
-    let result = items;
-    if (selectedCategory !== 'all') {
-      result = result.filter(i => i.category === selectedCategory);
+    let result = [...items];
+    
+    if (selectedCategory && selectedCategory !== 'all') {
+      result = result.filter(i => i && i.category === selectedCategory);
     }
+    
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(i => i.name.toLowerCase().includes(q));
+      result = result.filter(i => i && i.name && i.name.toLowerCase().includes(q));
     }
+    
     return result;
   }, [products, selectedCategory, searchQuery]);
 
-  // --- CÁLCULOS ---
-  const total = orderItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
+  // --- 7. CÁLCULOS ---
+  const total = orderItems.reduce((sum, item) => sum + (item.menuItem?.price || 0) * item.quantity, 0);
 
-  // --- RENDERIZADO CONDICIONAL ---
+  // --- 8. RENDERIZADO ---
   if (!isHydrated) return null;
 
   if (!currentUser) {
@@ -145,20 +150,28 @@ function App() {
               <input
                 type="text"
                 placeholder="Buscar producto..."
-                className="w-full p-4 rounded-2xl border shadow-sm"
+                className="w-full p-4 rounded-2xl border shadow-sm focus:ring-2 focus:ring-orange-500 outline-none"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
             
-            <MenuGrid 
-              items={filteredItems}
-              onAddItem={(item) => setOrderItems(prev => {
-                const exist = prev.find(i => i.menuItem.id === item.id);
-                if (exist) return prev.map(i => i.menuItem.id === item.id ? {...i, quantity: i.quantity + 1} : i);
-                return [...prev, { menuItem: item, quantity: 1, status: 'pending' }];
-              })}
-            />
+            {/* Si hay productos los muestra, si no, muestra mensaje amigable */}
+            {filteredItems.length > 0 ? (
+              <MenuGrid 
+                items={filteredItems}
+                onAddItem={(item) => setOrderItems(prev => {
+                  const exist = prev.find(i => i.menuItem.id === item.id);
+                  if (exist) return prev.map(i => i.menuItem.id === item.id ? {...i, quantity: i.quantity + 1} : i);
+                  return [...prev, { menuItem: item, quantity: 1, status: 'pending' }];
+                })}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                <span className="text-5xl mb-4">🍽️</span>
+                <p className="text-lg">No hay productos en esta categoría.</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -180,7 +193,7 @@ function App() {
           table={selectedTable}
           orderItems={orderItems}
           total={total}
-          subtotal={total} // Simplificado para pruebas
+          subtotal={total}
           tax={0}
           tip={0}
           onClose={() => setShowCheckout(false)}
