@@ -18,7 +18,7 @@ function App() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // --- 2. ESTADOS DE DATOS (Protegidos con listas vacías) ---
+  // --- 2. ESTADOS DE DATOS (Protegidos con listas vacías iniciales) ---
   const [products, setProducts] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -59,14 +59,13 @@ function App() {
             supabase.from('categories').select('*').order('name')
           ]);
 
-          // Si falla la red, asignamos lista vacía para que no explote el .filter()
+          // Si la respuesta es nula, asignamos lista vacía para evitar el error de .filter()
           setProducts(resProd.data || []);
           setTables(resTable.data || []);
           setCategories(resCats.data || []);
         } catch (err) {
           console.error("Error sincronizando datos:", err);
           setProducts([]);
-          setCategories([]);
         } finally {
           setLoading(false);
         }
@@ -91,7 +90,7 @@ function App() {
 
   // --- 6. LÓGICA DE FILTRADO (BLINDADA CONTRA ERRORES) ---
   const filteredItems = useMemo(() => {
-    // Escudo: Si products no existe, usamos lista vacía. Así nunca da error de 'undefined'
+    // Escudo: Si products no es un arreglo, usamos una lista vacía.
     const items = Array.isArray(products) ? products : [];
     
     let result = [...items];
@@ -108,10 +107,7 @@ function App() {
     return result;
   }, [products, selectedCategory, searchQuery]);
 
-  // --- 7. CÁLCULOS ---
-  const total = orderItems.reduce((sum, item) => sum + (item.menuItem?.price || 0) * item.quantity, 0);
-
-  // --- 8. RENDERIZADO ---
+  // --- 7. RENDERIZADO ---
   if (!isHydrated) return null;
 
   if (!currentUser) {
@@ -137,7 +133,6 @@ function App() {
       />
 
       <main className="flex-1 flex overflow-hidden">
-        {/* Panel Izquierdo: Menú */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <CategoryBar 
             categories={categories || []}
@@ -156,29 +151,24 @@ function App() {
               />
             </div>
             
-            {/* Si hay productos los muestra, si no, muestra mensaje amigable */}
+            {/* Si no hay productos, mostramos un mensaje en lugar de romper la pantalla */}
             {filteredItems.length > 0 ? (
               <MenuGrid 
                 items={filteredItems}
-                onAddItem={(item) => setOrderItems(prev => {
-                  const exist = prev.find(i => i.menuItem.id === item.id);
-                  if (exist) return prev.map(i => i.menuItem.id === item.id ? {...i, quantity: i.quantity + 1} : i);
-                  return [...prev, { menuItem: item, quantity: 1, status: 'pending' }];
-                })}
+                onAddItem={(item) => setOrderItems(prev => [...prev, { menuItem: item, quantity: 1, status: 'pending' }])}
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                 <span className="text-5xl mb-4">🍽️</span>
-                <p className="text-lg">No hay productos en esta categoría.</p>
+                <p className="text-lg font-medium">No hay productos en esta categoría.</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Panel Derecho: Orden */}
         <OrderPanel 
           orderItems={orderItems}
-          total={total}
+          total={orderItems.reduce((s, i) => s + i.menuItem.price * i.quantity, 0)}
           selectedTable={selectedTable}
           onUpdateQuantity={(id, q) => setOrderItems(prev => q <= 0 ? prev.filter(i => i.menuItem.id !== id) : prev.map(i => i.menuItem.id === id ? {...i, quantity: q} : i))}
           onRemoveItem={(id) => setOrderItems(prev => prev.filter(i => i.menuItem.id !== id))}
@@ -186,24 +176,6 @@ function App() {
           onClear={() => { setOrderItems([]); setSelectedTable(null); }}
         />
       </main>
-
-      {/* MODALES */}
-      {showCheckout && (
-        <CheckoutModal 
-          table={selectedTable}
-          orderItems={orderItems}
-          total={total}
-          subtotal={total}
-          tax={0}
-          tip={0}
-          onClose={() => setShowCheckout(false)}
-          onConfirm={() => {
-            setOrderItems([]);
-            setSelectedTable(null);
-            setShowCheckout(false);
-          }}
-        />
-      )}
 
       {showUserManager && <UserManager onClose={() => setShowUserManager(false)} />}
       {showProductManager && <ProductManager onClose={() => setShowProductManager(false)} />}
